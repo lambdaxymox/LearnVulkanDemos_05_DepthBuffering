@@ -1,5 +1,7 @@
 #include <vulkan/vulkan.h>
 
+#include "engine.h"
+
 #include <iostream>
 #include <stdexcept>
 #include <cstdlib>
@@ -14,10 +16,10 @@
 
 #include <fmt/core.h>
 #include <fmt/ostream.h>
-
+/*
 #include <vulkan_engine/vulkan_platform.h>
 #include <vulkan_engine/vulkan_platform_impl_fmt.h>
-
+*/
 #include <unordered_set>
 
 #ifndef GLFW_INCLUDE_VULKAN
@@ -38,7 +40,7 @@ const uint32_t WIDTH = 800;
 const uint32_t HEIGHT = 600;
 
 const std::string TEXTURE_PATH = std::string { "assets/texture.png" };
-
+/*
 const std::vector<std::string> VALIDATION_LAYERS = std::vector<std::string> { 
     VulkanEngine::Constants::VK_LAYER_KHRONOS_validation
 };
@@ -50,16 +52,18 @@ const bool enableDebuggingExtensions = false;
 const bool ENABLE_VALIDATION_LAYERS = true;
 const bool ENABLE_DEBUGGING_EXTENSIONS = true;
 #endif
-
+*/
 const int MAX_FRAMES_IN_FLIGHT = 2;
 
 
+using Engine = VulkanEngine::Engine;
+/*
 using VulkanInstanceProperties = VulkanEngine::VulkanPlatform::VulkanInstanceProperties;
 using PhysicalDeviceProperties = VulkanEngine::VulkanPlatform::PhysicalDeviceProperties;
 using Platform = VulkanEngine::VulkanPlatform::PlatformInfoProvider::Platform;
 using PlatformInfoProvider = VulkanEngine::VulkanPlatform::PlatformInfoProvider;
-
-
+*/
+/*
 struct QueueFamilyIndices final {
     std::optional<uint32_t> graphicsFamily;
     std::optional<uint32_t> presentFamily;
@@ -1531,6 +1535,7 @@ class Engine final {
             return newEngine;
         }
 };
+*/
 
 class StbTextureImage final {
     public:
@@ -2513,18 +2518,18 @@ class App {
             }();
             const auto indices = m_engine->findQueueFamilies(m_engine->getPhysicalDevice(), m_engine->getSurface());
             auto queueFamilyIndices = std::array<uint32_t, 2> { 
-                indices.graphicsFamily.value(),
+                indices.graphicsAndComputeFamily.value(),
                 indices.presentFamily.value()
             };
             const auto imageSharingMode = [&indices]() -> VkSharingMode {
-                if (indices.graphicsFamily != indices.presentFamily) {
+                if (indices.graphicsAndComputeFamily != indices.presentFamily) {
                     return VK_SHARING_MODE_CONCURRENT;
                 } else {
                     return VK_SHARING_MODE_EXCLUSIVE;
                 }
             }();
             const auto [queueFamilyIndicesPtr, queueFamilyIndexCount] = [&indices, &queueFamilyIndices]() -> std::tuple<const uint32_t*, uint32_t> {
-                if (indices.graphicsFamily != indices.presentFamily) {
+                if (indices.graphicsAndComputeFamily != indices.presentFamily) {
                     const auto data = queueFamilyIndices.data();
                     const auto size = static_cast<uint32_t>(queueFamilyIndices.size());
                 
