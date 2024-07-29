@@ -87,6 +87,7 @@ add_executable(LearnVulkanDemos_05_DepthBuffering)
 target_sources(LearnVulkanDemos_05_DepthBuffering PRIVATE
     src/main.cpp
     src/engine.cpp
+    src/engine_impl_fmt.cpp
 )
 target_link_libraries(LearnVulkanDemos_05_DepthBuffering PRIVATE Vulkan::Vulkan)
 target_link_libraries(LearnVulkanDemos_05_DepthBuffering PRIVATE glfw)
