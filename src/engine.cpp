@@ -489,9 +489,9 @@ std::vector<std::string> PhysicalDeviceSpecProvider::getPhysicalDeviceRequiremen
 
 using PhysicalDeviceSelector = VulkanEngine::PhysicalDeviceSelector;
 
-PhysicalDeviceSelector::PhysicalDeviceSelector(VkInstance instance, PlatformInfoProvider* infoProvider)
+PhysicalDeviceSelector::PhysicalDeviceSelector(VkInstance instance, std::unique_ptr<PlatformInfoProvider> infoProvider)
     : m_instance { instance }
-    , m_infoProvider { infoProvider }
+    , m_infoProvider { std::move(infoProvider) }
 {
 }
 
@@ -679,10 +679,10 @@ std::vector<std::string> LogicalDeviceSpecProvider::getLogicalDeviceRequirements
 
 using LogicalDeviceFactory = VulkanEngine::LogicalDeviceFactory;
 
-LogicalDeviceFactory::LogicalDeviceFactory(VkPhysicalDevice physicalDevice, VkSurfaceKHR surface, PlatformInfoProvider* infoProvider)
+LogicalDeviceFactory::LogicalDeviceFactory(VkPhysicalDevice physicalDevice, VkSurfaceKHR surface, std::unique_ptr<PlatformInfoProvider> infoProvider)
     : m_physicalDevice { physicalDevice }
     , m_surface { surface }
-    , m_infoProvider { infoProvider }
+    , m_infoProvider { std::move(infoProvider) }
 {
 }
 
@@ -857,7 +857,7 @@ VulkanDebugMessenger::~VulkanDebugMessenger() {
     this->cleanup();
 }
 
-VulkanDebugMessenger* VulkanDebugMessenger::create(VkInstance instance) {
+std::unique_ptr<VulkanDebugMessenger> VulkanDebugMessenger::create(VkInstance instance) {
     if (instance == VK_NULL_HANDLE) {
         throw std::invalid_argument { "Got an empty `VkInstance` handle" };
     }
@@ -888,7 +888,7 @@ VulkanDebugMessenger* VulkanDebugMessenger::create(VkInstance instance) {
         throw std::runtime_error { "failed to set up debug messenger!" };
     }
 
-    auto vulkanDebugMessenger = new VulkanDebugMessenger {};
+    auto vulkanDebugMessenger = std::make_unique<VulkanDebugMessenger>();
     vulkanDebugMessenger->m_instance = instance;
     vulkanDebugMessenger->m_debugMessenger = debugMessenger;
 
@@ -1004,8 +1004,8 @@ WindowSystem::~WindowSystem() {
     m_instance = VK_NULL_HANDLE;
 }
 
-WindowSystem* WindowSystem::create(VkInstance instance) {
-    return new WindowSystem { instance };
+std::unique_ptr<WindowSystem> WindowSystem::create(VkInstance instance) {
+    return std::make_unique<WindowSystem>(instance);
 }
 
 void WindowSystem::createWindow(uint32_t width, uint32_t height, const std::string& title) {
@@ -1176,6 +1176,26 @@ VkShaderModule GpuDevice::createShaderModule(const std::vector<char>& code) {
     return shaderModule;
 }
 
+VkShaderModule GpuDevice::createShaderModule(const std::vector<unsigned char>& code) {
+    const auto createInfo = VkShaderModuleCreateInfo {
+        .sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
+        .codeSize = code.size(),
+        .pCode = reinterpret_cast<const uint32_t*>(code.data()),
+        .pNext = nullptr,
+        .flags = 0,
+    };
+
+    auto shaderModule = VkShaderModule {};
+    const auto result = vkCreateShaderModule(m_device, &createInfo, nullptr, &shaderModule);
+    if (result != VK_SUCCESS) {
+        throw std::runtime_error("failed to create shader module!");
+    }
+
+    m_shaderModules.insert(shaderModule);
+
+    return shaderModule;
+}
+
 std::vector<char> GpuDevice::loadShader(std::istream& stream) {
     const size_t shaderSize = static_cast<size_t>(stream.tellg());
     auto buffer = std::vector<char>(shaderSize);
@@ -1223,7 +1243,6 @@ using GpuDeviceInitializer = VulkanEngine::GpuDeviceInitializer;
 GpuDeviceInitializer::GpuDeviceInitializer(VkInstance instance)
     : m_instance { instance }
 {
-    m_infoProvider = new PlatformInfoProvider {};
 }
 
 GpuDeviceInitializer::~GpuDeviceInitializer() {
@@ -1232,13 +1251,13 @@ GpuDeviceInitializer::~GpuDeviceInitializer() {
     m_instance = VK_NULL_HANDLE;
 }
 
-GpuDevice* GpuDeviceInitializer::createGpuDevice() {
+std::unique_ptr<GpuDevice> GpuDeviceInitializer::createGpuDevice() {
     this->createDummySurface();
     this->selectPhysicalDevice();
     this->createLogicalDevice();
     this->createCommandPool();
 
-    const auto gpuDevice = new GpuDevice {
+    auto gpuDevice = std::make_unique<GpuDevice>(
         m_instance,
         m_physicalDevice,
         m_device,
@@ -1246,7 +1265,7 @@ GpuDevice* GpuDeviceInitializer::createGpuDevice() {
         m_computeQueue,
         m_presentQueue,
         m_commandPool
-    };
+    );
 
     return gpuDevice;
 }
@@ -1306,7 +1325,10 @@ void GpuDeviceInitializer::createDummySurface() {
 void GpuDeviceInitializer::selectPhysicalDevice() {
     const auto physicalDeviceSpecProvider = PhysicalDeviceSpecProvider {};
     const auto physicalDeviceSpec = physicalDeviceSpecProvider.createPhysicalDeviceSpec();
-    const auto physicalDeviceSelector = PhysicalDeviceSelector { m_instance, m_infoProvider };
+    
+    auto infoProvider = std::make_unique<PlatformInfoProvider>();
+    const auto physicalDeviceSelector = PhysicalDeviceSelector { m_instance, std::move(infoProvider) };
+    
     const auto selectedPhysicalDevice = physicalDeviceSelector.selectPhysicalDeviceForSurface(
         m_dummySurface,
         physicalDeviceSpec
@@ -1318,7 +1340,10 @@ void GpuDeviceInitializer::selectPhysicalDevice() {
 void GpuDeviceInitializer::createLogicalDevice() {
     const auto logicalDeviceSpecProvider = LogicalDeviceSpecProvider { m_physicalDevice, m_dummySurface };
     const auto logicalDeviceSpec = logicalDeviceSpecProvider.createLogicalDeviceSpec();
-    auto factory = LogicalDeviceFactory { m_physicalDevice, m_dummySurface, m_infoProvider };
+
+    auto infoProvider = std::make_unique<PlatformInfoProvider>();
+    auto factory = LogicalDeviceFactory { m_physicalDevice, m_dummySurface, std::move(infoProvider) };
+    
     const auto [device, graphicsQueue, computeQueue, presentQueue] = factory.createLogicalDevice(logicalDeviceSpec);
 
     m_device = device;
@@ -1348,14 +1373,14 @@ void GpuDeviceInitializer::createCommandPool() {
 using Engine = VulkanEngine::Engine;
 
 Engine::~Engine() {
-    delete m_windowSystem;
-    delete m_gpuDevice;
-    delete m_debugMessenger;
+    m_windowSystem.reset();
+    m_gpuDevice.reset();
+    m_debugMessenger.reset();
 
     vkDestroyInstance(m_instance, nullptr);
 
-    delete m_systemFactory;
-    delete m_infoProvider;
+    m_systemFactory.reset();
+    m_infoProvider.reset();
 
     glfwTerminate();
 }
@@ -1432,15 +1457,15 @@ void Engine::createGLFWLibrary() {
 }
 
 void Engine::createInfoProvider() {
-    const auto infoProvider = new PlatformInfoProvider {};
+    auto infoProvider = std::make_unique<PlatformInfoProvider>();
 
-    m_infoProvider = infoProvider;
+    m_infoProvider = std::move(infoProvider);
 }
 
 void Engine::createSystemFactory() {
-    const auto systemFactory = new SystemFactory {};
+    auto systemFactory = std::make_unique<SystemFactory>();
 
-    m_systemFactory = systemFactory;
+    m_systemFactory = std::move(systemFactory);
 }
 
 void Engine::createInstance() {
@@ -1452,9 +1477,9 @@ void Engine::createInstance() {
 }
 
 void Engine::createWindowSystem() {
-    const auto windowSystem = WindowSystem::create(m_instance);
+    auto windowSystem = WindowSystem::create(m_instance);
 
-    m_windowSystem = windowSystem;
+    m_windowSystem = std::move(windowSystem);
 }
 
 void Engine::createDebugMessenger() {
@@ -1462,9 +1487,9 @@ void Engine::createDebugMessenger() {
         return;
     }
 
-    const auto debugMessenger = VulkanDebugMessenger::create(m_instance);
+    auto debugMessenger = VulkanDebugMessenger::create(m_instance);
 
-    m_debugMessenger = debugMessenger;
+    m_debugMessenger = std::move(debugMessenger);
 }
 
 void Engine::createWindow(uint32_t width, uint32_t height, const std::string& title) {
@@ -1475,9 +1500,9 @@ void Engine::createWindow(uint32_t width, uint32_t height, const std::string& ti
 
 void Engine::createGpuDevice() {
     auto gpuDeviceInitializer = GpuDeviceInitializer { m_instance };
-    const auto gpuDevice = gpuDeviceInitializer.createGpuDevice();
+    auto gpuDevice = gpuDeviceInitializer.createGpuDevice();
 
-    m_gpuDevice = gpuDevice;
+    m_gpuDevice = std::move(gpuDevice);
 }
 
 void Engine::createRenderSurface() {
@@ -1550,7 +1575,11 @@ VkShaderModule Engine::createShaderModule(std::istream& stream) {
     return m_gpuDevice->createShaderModule(stream);
 }
 
-VkShaderModule Engine::createShaderModule(std::vector<char>& code) {
+VkShaderModule Engine::createShaderModule(const std::vector<char>& code) {
+    return m_gpuDevice->createShaderModule(code);
+}
+
+VkShaderModule Engine::createShaderModule(const std::vector<unsigned char>& code) {
     return m_gpuDevice->createShaderModule(code);
 }
 
